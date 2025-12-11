@@ -2076,6 +2076,376 @@ class ModsWindow(ctk.CTkToplevel):
         threading.Thread(target=install, daemon=True).start()
 
 
+class ProfileModsWindow(ctk.CTkToplevel):
+    """Window for managing mods in a specific profile."""
+    
+    def __init__(
+        self,
+        parent,
+        profile: Profile,
+        profile_manager: ProfileManager,
+        theme: dict,
+        on_change: Optional[Callable] = None
+    ):
+        super().__init__(parent)
+        
+        self.profile = profile
+        self.profile_manager = profile_manager
+        self.theme = theme
+        self.on_change = on_change
+        
+        self.mods_dir = Path(profile.game_directory) / "mods" if profile.game_directory else None
+        
+        self.title(f"🧩 {t('mods')}: {profile.name}")
+        self.geometry("600x500")
+        self.minsize(500, 400)
+        self.configure(fg_color=theme["bg_primary"])
+        
+        self.transient(parent)
+        
+        self._create_widgets()
+        self._load_mods()
+        
+        self.after(10, self._grab_focus)
+    
+    def _grab_focus(self):
+        try:
+            self.grab_set()
+            self.focus_force()
+        except:
+            pass
+    
+    def _create_widgets(self):
+        # Title
+        title_frame = ctk.CTkFrame(self, fg_color="transparent")
+        title_frame.pack(fill="x", padx=20, pady=(20, 10))
+        
+        ctk.CTkLabel(
+            title_frame,
+            text=f"🧩 {t('mods')}: {self.profile.name}",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(side="left")
+        
+        # Open folder button
+        ctk.CTkButton(
+            title_frame,
+            text=f"📂 {t('open_folder')}",
+            width=120,
+            height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self._open_mods_folder
+        ).pack(side="right")
+        
+        # Info
+        if self.mods_dir:
+            ctk.CTkLabel(
+                self,
+                text=str(self.mods_dir),
+                font=ctk.CTkFont(size=11),
+                text_color=self.theme["text_muted"]
+            ).pack(anchor="w", padx=20)
+        
+        # Mods list
+        self.mods_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            corner_radius=0
+        )
+        self.mods_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        self.mods_frame.grid_columnconfigure(0, weight=1)
+        
+        # Bind mousewheel
+        self._bind_mousewheel(self.mods_frame)
+        
+        # Status
+        self.status_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_muted"]
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        # Buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 15))
+        
+        ctk.CTkButton(
+            btn_frame,
+            text=f"🔄 {t('refresh')}",
+            width=100,
+            height=36,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self._load_mods
+        ).pack(side="left")
+        
+        ctk.CTkButton(
+            btn_frame,
+            text=t("cancel"),
+            width=100,
+            height=36,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self.destroy
+        ).pack(side="right")
+    
+    def _bind_mousewheel(self, widget):
+        """Bind mousewheel scrolling."""
+        def on_mousewheel(event):
+            try:
+                widget._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except:
+                try:
+                    if event.num == 4:
+                        widget._parent_canvas.yview_scroll(-1, "units")
+                    elif event.num == 5:
+                        widget._parent_canvas.yview_scroll(1, "units")
+                except:
+                    pass
+        
+        widget.bind("<MouseWheel>", on_mousewheel)
+        widget.bind("<Button-4>", on_mousewheel)
+        widget.bind("<Button-5>", on_mousewheel)
+        
+        for child in widget.winfo_children():
+            child.bind("<MouseWheel>", on_mousewheel)
+            child.bind("<Button-4>", on_mousewheel)
+            child.bind("<Button-5>", on_mousewheel)
+    
+    def _load_mods(self):
+        """Load and display mods from the profile's mods folder."""
+        # Clear existing
+        for widget in self.mods_frame.winfo_children():
+            widget.destroy()
+        
+        if not self.mods_dir or not self.mods_dir.exists():
+            ctk.CTkLabel(
+                self.mods_frame,
+                text=f"📁 {t('mods_folder')}\n{t('not_found')}",
+                font=ctk.CTkFont(size=14),
+                text_color=self.theme["text_muted"]
+            ).grid(row=0, column=0, pady=50)
+            return
+        
+        # Get all mod files
+        mod_files = []
+        for ext in ["*.jar", "*.jar.disabled"]:
+            mod_files.extend(self.mods_dir.glob(ext))
+        
+        mod_files.sort(key=lambda f: f.name.lower())
+        
+        if not mod_files:
+            ctk.CTkLabel(
+                self.mods_frame,
+                text=f"📭 {t('mods_not_found')}",
+                font=ctk.CTkFont(size=14),
+                text_color=self.theme["text_muted"]
+            ).grid(row=0, column=0, pady=50)
+            self.status_label.configure(text=f"0 {t('mods').lower()}")
+            return
+        
+        # Create mod cards
+        for i, mod_file in enumerate(mod_files):
+            self._create_mod_card(mod_file, i)
+        
+        enabled = sum(1 for f in mod_files if f.suffix == ".jar")
+        disabled = sum(1 for f in mod_files if f.suffix == ".disabled")
+        self.status_label.configure(text=f"✅ {enabled} • ⏸️ {disabled}")
+    
+    def _create_mod_card(self, mod_file: Path, row: int):
+        """Create a card for a mod file."""
+        is_enabled = mod_file.suffix == ".jar"
+        
+        card = ctk.CTkFrame(
+            self.mods_frame,
+            fg_color=self.theme["bg_secondary"] if is_enabled else self.theme["bg_tertiary"],
+            corner_radius=8
+        )
+        card.grid(row=row, column=0, sticky="ew", pady=3)
+        card.grid_columnconfigure(1, weight=1)
+        
+        # Status indicator
+        status_label = ctk.CTkLabel(
+            card,
+            text="✅" if is_enabled else "⏸️",
+            font=ctk.CTkFont(size=16),
+            width=30
+        )
+        status_label.grid(row=0, column=0, padx=(10, 5), pady=10)
+        
+        # Mod info
+        info_frame = ctk.CTkFrame(card, fg_color="transparent")
+        info_frame.grid(row=0, column=1, sticky="ew", padx=5, pady=8)
+        
+        # Get display name (remove .jar or .jar.disabled)
+        display_name = mod_file.name
+        if display_name.endswith(".jar.disabled"):
+            display_name = display_name[:-13]
+        elif display_name.endswith(".jar"):
+            display_name = display_name[:-4]
+        
+        # Check if we have metadata from profile
+        mod_info = None
+        base_filename = mod_file.name.replace(".disabled", "")
+        for m in self.profile.installed_mods:
+            if m.get("filename") == base_filename:
+                mod_info = m
+                break
+        
+        name_text = mod_info.get("name", display_name) if mod_info else display_name
+        
+        ctk.CTkLabel(
+            info_frame,
+            text=name_text[:50] + ("..." if len(name_text) > 50 else ""),
+            font=ctk.CTkFont(size=13, weight="bold" if is_enabled else "normal"),
+            text_color=self.theme["text_primary"] if is_enabled else self.theme["text_muted"],
+            anchor="w"
+        ).pack(anchor="w")
+        
+        # Source info
+        if mod_info:
+            source = mod_info.get("source", "local")
+            source_icon = "🟢" if source == "modrinth" else "🟠" if source == "curseforge" else "📂"
+            source_text = f"{source_icon} {source.capitalize()}"
+            
+            ctk.CTkLabel(
+                info_frame,
+                text=source_text,
+                font=ctk.CTkFont(size=10),
+                text_color=self.theme["text_muted"],
+                anchor="w"
+            ).pack(anchor="w")
+        else:
+            ctk.CTkLabel(
+                info_frame,
+                text=f"📂 {mod_file.name}",
+                font=ctk.CTkFont(size=10),
+                text_color=self.theme["text_muted"],
+                anchor="w"
+            ).pack(anchor="w")
+        
+        # Buttons frame
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.grid(row=0, column=2, padx=10, pady=8)
+        
+        # Toggle button
+        toggle_btn = ctk.CTkButton(
+            btn_frame,
+            text="⏸️" if is_enabled else "▶️",
+            width=35,
+            height=35,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["accent"] if not is_enabled else self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=lambda f=mod_file: self._toggle_mod(f)
+        )
+        toggle_btn.pack(side="left", padx=(0, 5))
+        
+        # Delete button
+        delete_btn = ctk.CTkButton(
+            btn_frame,
+            text="🗑️",
+            width=35,
+            height=35,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["error"],
+            text_color=self.theme["text_muted"],
+            command=lambda f=mod_file: self._delete_mod(f)
+        )
+        delete_btn.pack(side="left")
+        
+        # Bind mousewheel to card
+        for widget in [card, status_label, info_frame, btn_frame]:
+            widget.bind("<MouseWheel>", lambda e: self.mods_frame._parent_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+            widget.bind("<Button-4>", lambda e: self.mods_frame._parent_canvas.yview_scroll(-1, "units"))
+            widget.bind("<Button-5>", lambda e: self.mods_frame._parent_canvas.yview_scroll(1, "units"))
+    
+    def _toggle_mod(self, mod_file: Path):
+        """Enable or disable a mod."""
+        try:
+            if mod_file.suffix == ".jar":
+                # Disable: rename to .jar.disabled
+                new_path = mod_file.with_suffix(".jar.disabled")
+                mod_file.rename(new_path)
+                logger.info(f"Disabled mod: {mod_file.name}")
+            else:
+                # Enable: remove .disabled
+                new_name = mod_file.name.replace(".jar.disabled", ".jar")
+                new_path = mod_file.parent / new_name
+                mod_file.rename(new_path)
+                logger.info(f"Enabled mod: {new_name}")
+            
+            self._load_mods()
+            if self.on_change:
+                self.on_change()
+        except Exception as e:
+            logger.error(f"Failed to toggle mod: {e}")
+            self.status_label.configure(
+                text=f"❌ {t('error')}: {e}",
+                text_color=self.theme["error"]
+            )
+    
+    def _delete_mod(self, mod_file: Path):
+        """Delete a mod file."""
+        from tkinter import messagebox
+        
+        if not messagebox.askyesno(
+            t("delete_mod_title"),
+            t("delete_mod_confirm").format(name=mod_file.name),
+            parent=self
+        ):
+            return
+        
+        try:
+            mod_file.unlink()
+            logger.info(f"Deleted mod: {mod_file.name}")
+            
+            # Also remove from profile's installed_mods
+            base_filename = mod_file.name.replace(".disabled", "")
+            self.profile_manager.remove_installed_mod(self.profile.id, base_filename)
+            
+            self._load_mods()
+            if self.on_change:
+                self.on_change()
+        except Exception as e:
+            logger.error(f"Failed to delete mod: {e}")
+            self.status_label.configure(
+                text=f"❌ {t('error')}: {e}",
+                text_color=self.theme["error"]
+            )
+    
+    def _open_mods_folder(self):
+        """Open the mods folder in file manager."""
+        if not self.mods_dir:
+            return
+        
+        self.mods_dir.mkdir(parents=True, exist_ok=True)
+        
+        import subprocess
+        import platform
+        
+        try:
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", str(self.mods_dir)])
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", str(self.mods_dir)])
+            else:
+                subprocess.run(["xdg-open", str(self.mods_dir)])
+        except Exception as e:
+            logger.error(f"Failed to open folder: {e}")
+
+
 class ModBrowserWindow(ctk.CTkToplevel):
     """Window for browsing and installing mods from CurseForge/Modrinth."""
     
@@ -3446,7 +3816,7 @@ class MainWindow(ctk.CTk):
         set_language(self.config.get("language", "ru"))
         
         self.launcher = LauncherCore(self.config.get_minecraft_dir())
-        # self.mod_manager = ModManager(self.config.get_minecraft_dir(), launcher_core=self.launcher)
+        self.mod_manager = ModManager(self.config.get_minecraft_dir(), launcher_core=self.launcher)
         self.profile_manager = ProfileManager(self.config.config_dir, minecraft_dir=self.config.get_minecraft_dir())
         self.auth = AuthManager(self.config.config_dir)
         
@@ -3636,18 +4006,18 @@ class MainWindow(ctk.CTk):
         )
         import_btn.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         
-        # Mods button
-        # mods_btn = ctk.CTkButton(
-        #     buttons_frame,
-        #     text=f"🧩 {t('mods')}",
-        #     height=40,
-        #     font=ctk.CTkFont(size=13),
-        #     fg_color=self.theme["bg_tertiary"],
-        #     hover_color=self.theme["bg_hover"],
-        #     text_color=self.theme["text_primary"],
-        #     command=self._open_mods
-        # )
-        # mods_btn.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        # Mods manager button
+        mods_btn = ctk.CTkButton(
+            buttons_frame,
+            text=f"🧩 {t('mods')}",
+            height=40,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self._open_profile_mods
+        )
+        mods_btn.grid(row=2, column=0, sticky="ew", pady=(0, 8))
         
         # Browse mods catalog button
         browse_mods_btn = ctk.CTkButton(
@@ -4580,6 +4950,26 @@ class MainWindow(ctk.CTk):
             self.launcher,
             self.theme,
             self.selected_version or ""
+        )
+    
+    def _open_profile_mods(self):
+        """Open mods manager for the selected profile."""
+        from tkinter import messagebox
+        
+        if not self.selected_profile:
+            messagebox.showinfo(
+                t("info"),
+                t("select_profile_first") if "select_profile_first" in dir(t) else "Сначала выберите профиль",
+                parent=self
+            )
+            return
+        
+        ProfileModsWindow(
+            self,
+            self.selected_profile,
+            self.profile_manager,
+            self.theme,
+            on_change=self._load_versions
         )
     
     def _open_mod_browser(self):

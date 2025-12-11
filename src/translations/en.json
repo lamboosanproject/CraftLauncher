@@ -216,5 +216,10 @@
   "save_archive": "Save archive as",
   "profile_archive": "Profile Archive",
   "nothing_to_export": "Nothing to export",
-  "install_after_import": "Install mods after import?"
+  "install_after_import": "Install mods after import?",
+  "select_profile_first": "Please select a profile first",
+  "enabled": "Enabled",
+  "disabled": "Disabled",
+  "mod_enabled": "Mod enabled",
+  "mod_disabled": "Mod disabled"
 }
