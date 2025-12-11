@@ -123,11 +123,9 @@
   "optifine_desc": "OptiFine mod",
 
   "delete_profile_title": "Delete Profile",
-  "delete_profile_confirm": "Delete profile '{name}'?",
   "delete_version_title": "Delete Version",
   "delete_version_confirm": "Delete version {version}?\n\nThis action cannot be undone.",
   "delete_mod_title": "Delete Mod",
-  "delete_mod_confirm": "Delete mod {name}?",
   "delete_all": "Yes — delete everything",
   "delete_profile_only": "No — profile only",
   "version_used_by_others": "Version is used by other profiles!",
@@ -192,6 +190,15 @@
   "api_key_hint": "Get it at console.curseforge.com",
   "no_mods_found": "No mods found",
   "try_different_search": "Try a different search",
+
+  "extracting": "Extracting",
+  "manifest_code": "Manifest code",
+  "insert_manifest_code": "Insert manifest code",
+  "insert_check_code": "Insert manifest code and press 'Check'",
+  "code_valid": "Code is valid",
+  "code_invalid": "Code is invalid",
+  "code_parsing_error": "Code parsing error",
+
 
   "export_profile": "Export Profile",
   "import_profile": "Import Profile",

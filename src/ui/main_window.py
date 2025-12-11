@@ -562,7 +562,7 @@ class AccountWindow(ctk.CTkToplevel):
         self.on_complete = on_complete
         self.is_busy = False
         
-        self.title("Добавить аккаунт")
+        self.title(t("account_title"))
         self.geometry("450x500")
         self.resizable(False, False)
         self.configure(fg_color=theme["bg_primary"])
@@ -583,7 +583,7 @@ class AccountWindow(ctk.CTkToplevel):
         # Title
         title = ctk.CTkLabel(
             self,
-            text="👤 Добавить аккаунт",
+            text=f"👤 {t('account_title')}",
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color=self.theme["text_primary"]
         )
@@ -978,7 +978,7 @@ class CreateProfileWindow(ctk.CTkToplevel):
         # Title
         title = ctk.CTkLabel(
             self,
-            text=f"✨ {t('create_new_profile')}",
+            text=f"✨ {t('create_profile_title')}",
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color=self.theme["text_primary"]
         )
@@ -1960,7 +1960,7 @@ class ModsWindow(ctk.CTkToplevel):
         """Delete a mod."""
         from tkinter import messagebox
         
-        if messagebox.askyesno("Удаление мода", f"Удалить мод {name}?", parent=self):
+        if messagebox.askyesno(t("delete_mod_title"), f"{t('delete_mod_title')} {name}?", parent=self):
             self.mod_manager.delete_mod(path)
             self._refresh_mods()
     
@@ -3151,7 +3151,7 @@ class ImportProfileWindow(ctk.CTkToplevel):
         # Code input
         ctk.CTkLabel(
             self,
-            text="Вставьте Manifest-код:",
+            text=f"{t('insert_manifest_code')}:",
             font=ctk.CTkFont(size=14, weight="bold"),
             text_color=self.theme["text_primary"]
         ).pack(anchor="w", padx=20)
@@ -3171,7 +3171,7 @@ class ImportProfileWindow(ctk.CTkToplevel):
         # Parse button
         ctk.CTkButton(
             self,
-            text="🔍 Проверить код",
+            text=f"🔍 {t('insert_check_code')}",
             width=150,
             height=35,
             font=ctk.CTkFont(size=13),
@@ -3187,7 +3187,7 @@ class ImportProfileWindow(ctk.CTkToplevel):
         
         self.preview_label = ctk.CTkLabel(
             self.preview_frame,
-            text="Вставьте код и нажмите 'Проверить'",
+            text=t("insert_check_code"),
             font=ctk.CTkFont(size=13),
             text_color=self.theme["text_muted"]
         )
@@ -3255,7 +3255,7 @@ class ImportProfileWindow(ctk.CTkToplevel):
         
         if not code:
             self.status_label.configure(
-                text="❌ Введите код",
+                text=f"❌ {t('insert_manifest_code')}",
                 text_color=self.theme["error"]
             )
             return
@@ -3270,7 +3270,7 @@ class ImportProfileWindow(ctk.CTkToplevel):
             preview_text += f"📦 Minecraft {manifest['minecraft_version']}\n"
             if manifest.get('loader_type'):
                 preview_text += f"🔧 {manifest['loader_type'].capitalize()} {manifest.get('loader_version', '')}\n"
-            preview_text += f"\n📁 Модов: {len(manifest.get('mods', []))}\n"
+            preview_text += f"\n📁 {t('mods')}: {len(manifest.get('mods', []))}\n"
             
             # List mods
             for mod in manifest.get('mods', [])[:5]:
@@ -3287,18 +3287,18 @@ class ImportProfileWindow(ctk.CTkToplevel):
             
             self.import_btn.configure(state="normal")
             self.status_label.configure(
-                text="✅ Код валидный!",
+                text=f"✅ {t('code_valid')}",
                 text_color=self.theme["success"]
             )
         else:
             self.parsed_manifest = None
             self.preview_label.configure(
-                text="❌ Неверный формат кода",
+                text=f"❌ {t('code_invalid')}",
                 text_color=self.theme["error"]
             )
             self.import_btn.configure(state="disabled")
             self.status_label.configure(
-                text="❌ Ошибка парсинга кода",
+                text=f"❌ {t('code_parsing_error')}",
                 text_color=self.theme["error"]
             )
     
@@ -3957,7 +3957,7 @@ class MainWindow(ctk.CTk):
         # Auth button (Login/Logout)
         self.auth_button = ctk.CTkButton(
             user_frame,
-            text="👤 Добавить аккаунт" if not self.auth.is_logged_in() else "Выйти",
+            text=f"👤 {t('account_title')}" if not self.auth.is_logged_in() else t("logout"),
             height=32,
             font=ctk.CTkFont(size=12),
             fg_color=self.theme["accent"] if not self.auth.is_logged_in() else self.theme["bg_secondary"],
@@ -4233,7 +4233,7 @@ class MainWindow(ctk.CTk):
                 text_color=self.theme["text_muted"]
             )
             self.auth_button.configure(
-                text="👤 Добавить аккаунт",
+                text=f"👤 {t('account_title')}",
                 fg_color=self.theme["accent"],
                 hover_color=self.theme["accent_hover"],
                 text_color="#ffffff"
@@ -4543,7 +4543,7 @@ class MainWindow(ctk.CTk):
         # Build message
         has_custom_dir = profile.game_directory and Path(profile.game_directory).exists()
         
-        msg = f"{t('delete_profile_confirm')}: {profile.name}?\n\n"
+        msg = f"{t('delete_profile_title')}: {profile.name}?\n\n"
         
         if has_custom_dir:
             msg += f"📁 {t('profile_folder')}: {profile.game_directory}\n"

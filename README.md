@@ -1,47 +1,76 @@
 # ⛏️ CraftLauncher
 
-Современный кроссплатформенный лаунчер для Minecraft на Python.
+A modern cross-platform Minecraft launcher built with Python.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20|%20Linux%20|%20macOS-lightgrey)
 
-## ✨ Возможности
+## ✨ Features
 
-- 🎮 **Скачивание и запуск** любых версий Minecraft
-- 🌙 **Тёмная тема** с несколькими вариантами оформления
-- ⚙️ **Гибкие настройки** (RAM, Java путь, и др.)
-- 🚀 **Автономный запуск** — не требует установки Python
-- 🖥️ **Кроссплатформенность** — Windows, Linux, macOS
-- 🔄 **Оффлайн режим** — играйте без интернета
+### 🎮 Version Management
+- Download and launch **any Minecraft version** (releases, snapshots, alpha/beta)
+- Automatic library and asset installation
+- Delete installed versions
 
-## 📦 Установка
+### 📁 Profile System
+- Create **custom profiles** with MC version and mod loader
+- Supported loaders: **Fabric**, **Forge**, **NeoForge**, **Quilt**, **OptiFine**
+- Combined **Forge + OptiFine** profiles
+- Isolated folders per profile (mods, saves, resource packs)
+- **Export/Import profiles** via Manifest-code — share modpacks instantly!
 
-### Для пользователей (готовые сборки)
+### 🧩 Mod Management
+- Built-in **mod browser** with Modrinth & CurseForge search
+- Automatic dependency installation
+- Per-profile mod manager (enable/disable/delete)
+- Async icon loading for mods
 
-Скачайте готовый исполняемый файл для вашей платформы из [Releases](releases/).
+### 👤 Account System
+- **Local Profile** — offline mode
+- **Microsoft Account** — official authentication
+- **Ely.by Account** — free in-game skins via authlib-injector
 
-### Для разработчиков
+### 🎨 Interface
+- Modern UI with **CustomTkinter**
+- Themes: **Dark**, **Light**, **Midnight**
+- Multi-language: 🇷🇺 Russian, 🇬🇧 English, 🇺🇦 Ukrainian
+- Player skin display
+- Debug console
+
+## 📦 Installation
+
+### For Users (Pre-built)
+
+Download the executable for your platform from [Releases](../../releases).
+
+| Platform | File |
+|----------|------|
+| 🪟 Windows | `CraftLauncher-Windows.exe` |
+| 🐧 Linux | `CraftLauncher-Linux` |
+| 🍎 macOS | `CraftLauncher-macOS` |
+
+### For Developers
 
 ```bash
-# Клонируйте репозиторий
+# Clone the repository
 git clone https://github.com/your-username/CraftLauncher.git
 cd CraftLauncher
 
-# Создайте виртуальное окружение
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/macOS
-# или
+# or
 venv\Scripts\activate  # Windows
 
-# Установите зависимости
+# Install dependencies
 pip install -r requirements.txt
 
-# Запустите лаунчер
+# Run the launcher
 python run.py
 ```
 
-## 🔨 Сборка
+## 🔨 Building
 
 ### Linux / macOS
 
@@ -56,83 +85,97 @@ chmod +x build.sh
 build.bat
 ```
 
-### Через Python
+### Via Python
 
 ```bash
 python build.py
 ```
 
-Исполняемый файл будет создан в папке `dist/`.
+The executable will be created in the `dist/` folder.
 
-## 📁 Структура проекта
+## 📁 Project Structure
 
 ```
 CraftLauncher/
 ├── src/
-│   ├── __init__.py          # Метаданные пакета
-│   ├── main.py              # Точка входа
-│   ├── config.py            # Управление настройками
-│   ├── launcher_core.py     # Ядро лаунчера
+│   ├── main.py              # Entry point
+│   ├── config.py            # Settings management
+│   ├── launcher_core.py     # Launcher core
+│   ├── profiles.py          # Profile management
+│   ├── auth.py              # Authentication
+│   ├── mods.py              # Mod loaders
+│   ├── mod_sources.py       # Modrinth/CurseForge API
+│   ├── elyby.py             # Ely.by integration
+│   ├── i18n.py              # Internationalization
+│   ├── translations/        # Language files
+│   │   ├── en.json
+│   │   ├── ru.json
+│   │   └── uk.json
 │   └── ui/
-│       ├── __init__.py
-│       ├── main_window.py   # Главное окно
-│       └── themes.py        # Темы оформления
-├── assets/                   # Иконки и изображения
-├── requirements.txt          # Зависимости
-├── build.py                  # Скрипт сборки
-├── build.sh                  # Сборка для Linux/macOS
-├── build.bat                 # Сборка для Windows
-├── run.py                    # Запуск для разработки
-└── README.md
+│       ├── main_window.py   # Main window
+│       └── themes.py        # UI themes
+├── requirements.txt
+├── build.py
+├── build.sh
+├── build.bat
+└── run.py
 ```
 
-## ⚙️ Настройки
+## ⚙️ Configuration
 
-Лаунчер автоматически сохраняет настройки в:
+Settings are automatically saved to:
 
-| Платформа | Путь |
-|-----------|------|
+| Platform | Path |
+|----------|------|
 | Windows | `%APPDATA%\CraftLauncher\config.json` |
 | Linux | `~/.config/CraftLauncher/config.json` |
 | macOS | `~/Library/Application Support/CraftLauncher/config.json` |
 
-### Параметры
+### Parameters
 
-- **username** — имя игрока
-- **ram_min/ram_max** — объём выделяемой RAM (в GB)
-- **java_path** — путь к Java (пусто = автопоиск)
-- **theme** — тема оформления (dark, light, midnight)
-- **show_snapshots** — показывать снапшоты
-- **show_old_versions** — показывать альфа/бета версии
+- **ram_min/ram_max** — allocated RAM (in GB)
+- **java_path** — path to Java (empty = auto-detect)
+- **theme** — UI theme (dark, light, midnight)
+- **language** — interface language (en, ru, uk)
+- **show_snapshots** — show snapshot versions
+- **show_old_versions** — show alpha/beta versions
+- **close_on_launch** — close launcher when game starts
+- **show_game_console** — show debug console
 
-## 🎨 Темы
+## 🎨 Themes
 
-Доступны три темы оформления:
+Three themes available:
 
-- **Dark** — тёмная тема с зелёным акцентом
-- **Light** — светлая тема
-- **Midnight** — ночная тема с фиолетовым акцентом
+- **Dark** — dark theme with green accent
+- **Light** — light theme
+- **Midnight** — night theme with purple accent
 
-## 🔧 Требования
+## 🔧 Requirements
 
-- **Python 3.10+** (для разработки)
-- **Java 8+** (для запуска Minecraft)
+- **Python 3.10+** (for development)
+- **Java 8+** (for Minecraft)
 
-## 📝 Лицензия
+## 📝 License
 
-MIT License — используйте свободно!
+MIT License — use freely!
 
-## 🤝 Вклад
+## 🤝 Contributing
 
-Принимаем Pull Requests! Перед отправкой:
+Pull Requests are welcome! Before submitting:
 
-1. Форкните репозиторий
-2. Создайте ветку для фичи (`git checkout -b feature/amazing-feature`)
-3. Закоммитьте изменения (`git commit -m 'Add amazing feature'`)
-4. Запушьте ветку (`git push origin feature/amazing-feature`)
-5. Откройте Pull Request
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 🙏 Credits
+
+- [minecraft-launcher-lib](https://github.com/JakobDev/minecraft-launcher-lib) — Minecraft library
+- [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) — Modern UI widgets
+- [Ely.by](https://ely.by/) — Skin system
+- [Modrinth](https://modrinth.com/) & [CurseForge](https://curseforge.com/) — Mod catalogs
 
 ---
 
-Сделано с ❤️ и Python
-
+Made with ❤️ and Python

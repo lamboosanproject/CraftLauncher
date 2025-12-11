@@ -191,6 +191,14 @@
   "no_mods_found": "Моды не найдены",
   "try_different_search": "Попробуйте другой запрос",
 
+  "extracting": "Извлечение",
+  "manifest_code": "Manifest-код",
+  "insert_manifest_code": "Вставьте Manifest-код",
+  "insert_check_code": "Вставьте код и нажмите 'Проверить'",
+  "code_valid": "Код валидный!",
+  "code_invalid": "Неверный формат кода",
+  "code_parsing_error": "Ошибка парсинга кода",
+
   "export_profile": "Экспорт профиля",
   "import_profile": "Импорт профиля",
   "export_title": "Экспорт профиля",

@@ -384,7 +384,7 @@ class ProfileManager:
                 total_files = len(files_to_extract)
                 
                 if callback:
-                    callback("Извлечение файлов...", 0, total_files)
+                    callback(f"⏳ {t('extracting')} файлов...", 0, total_files)
                 
                 for i, file_name in enumerate(files_to_extract):
                     target_path = game_dir / file_name
@@ -395,7 +395,7 @@ class ProfileManager:
                         dst.write(src.read())
                     
                     if callback:
-                        callback(f"Извлечение {file_name}", i + 1, total_files)
+                        callback(f"⏳ {t('extracting')}... {file_name}", i + 1, total_files)
                 
                 logger.info(f"Imported profile '{profile_name}' from {import_path}")
                 logger.info(f"Extracted: {total_files} files to {game_dir}")
