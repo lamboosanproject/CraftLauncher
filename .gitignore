@@ -1,0 +1,59 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+.env/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+*.spec
+
+# PyInstaller
+*.manifest
+*.spec
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Config (user-specific)
+config.json
+
+# Cache
+.cache/
+*.cache
+
+# Minecraft files (don't commit game data)
+.minecraft/
+
+# Build output
+CraftLauncher
+CraftLauncher.exe
+CraftLauncher.app/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+temp/
+
