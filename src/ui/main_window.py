@@ -750,7 +750,7 @@ class AccountWindow(ctk.CTkToplevel):
             fg_color=self.theme["bg_tertiary"],
             border_color=self.theme["border"],
             text_color=self.theme["text_primary"],
-            placeholder_text="Email или имя пользователя"
+            placeholder_text=f"{t('email')} {t('or')} {t('username')}"
         )
         self.elyby_username.pack(fill="x", pady=(0, 10))
         
