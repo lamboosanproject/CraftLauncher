@@ -172,5 +172,23 @@
   "found_versions": "Знайдено {count} версій",
   "skin_default": "Скін за замовчуванням",
   "skin_not_found": "Скін не знайдено",
-  "offline_mode": "Офлайн режим"
+  "offline_mode": "Офлайн режим",
+
+  "browse_mods": "Каталог модів",
+  "search_mods": "Пошук модів",
+  "search_placeholder": "Введіть назву мода...",
+  "all_sources": "Всі джерела",
+  "downloads": "Завантаження",
+  "by_author": "від",
+  "install_mod": "Встановити",
+  "installing_mod": "Встановлення мода...",
+  "mod_installed": "Мод встановлено",
+  "select_mod_version": "Оберіть версію мода",
+  "dependencies": "Залежності",
+  "required_dependency": "Обов'язкова",
+  "optional_dependency": "Опціональна",
+  "curseforge_api_key": "CurseForge API ключ",
+  "api_key_hint": "Отримайте на console.curseforge.com",
+  "no_mods_found": "Моди не знайдено",
+  "try_different_search": "Спробуйте інший запит"
 }

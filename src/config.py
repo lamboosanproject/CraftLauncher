@@ -28,6 +28,7 @@ class Config:
         "show_old_versions": False,
         "close_on_launch": False,
         "show_game_console": False,  # Show debug console when game runs
+        "curseforge_api_key": "",  # CurseForge API key for mod downloads
     }
     
     def __init__(self):

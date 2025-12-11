@@ -3,9 +3,13 @@ Main window for CraftLauncher
 """
 
 import customtkinter as ctk
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 import threading
 from pathlib import Path
+from io import BytesIO
+
+import requests
+from PIL import Image
 
 from ..config import Config
 from ..launcher_core import LauncherCore, VersionInfo
@@ -14,6 +18,7 @@ from ..auth import AuthManager
 from ..mods import ModManager
 from ..profiles import ProfileManager, Profile
 from ..i18n import get_i18n, set_language, t, LANGUAGES
+from ..mod_sources import ModSourceManager, ModInfo, ModVersion
 from .themes import get_theme
 
 
@@ -197,6 +202,7 @@ class ProfileCard(ctk.CTkFrame):
         theme: dict,
         on_select: Optional[Callable[[str], None]] = None,
         on_delete: Optional[Callable[[str], None]] = None,
+        on_export: Optional[Callable[[str], None]] = None,
         **kwargs
     ):
         super().__init__(parent, **kwargs)
@@ -205,6 +211,7 @@ class ProfileCard(ctk.CTkFrame):
         self.theme = theme
         self.on_select = on_select
         self.on_delete = on_delete
+        self.on_export = on_export
         self.is_selected = False
         
         self.configure(
@@ -245,9 +252,28 @@ class ProfileCard(ctk.CTkFrame):
         )
         self.name_label.pack(side="left")
         
+        # Buttons frame
+        buttons_frame = ctk.CTkFrame(top_frame, fg_color="transparent")
+        buttons_frame.grid(row=0, column=1, sticky="e")
+        
+        # Export button
+        self.export_btn = ctk.CTkButton(
+            buttons_frame,
+            text="📤",
+            width=28,
+            height=28,
+            font=ctk.CTkFont(size=12),
+            fg_color="transparent",
+            hover_color=self.theme["accent"],
+            text_color=self.theme["text_muted"],
+            command=self._on_export_click
+        )
+        self.export_btn.pack(side="left", padx=(0, 2))
+        self.export_btn.pack_forget()
+        
         # Delete button
         self.delete_btn = ctk.CTkButton(
-            top_frame,
+            buttons_frame,
             text="🗑",
             width=28,
             height=28,
@@ -257,8 +283,8 @@ class ProfileCard(ctk.CTkFrame):
             text_color=self.theme["text_muted"],
             command=self._on_delete_click
         )
-        self.delete_btn.grid(row=0, column=1, sticky="e")
-        self.delete_btn.grid_remove()
+        self.delete_btn.pack(side="left")
+        self.delete_btn.pack_forget()
         
         # Info row
         info_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -332,7 +358,8 @@ class ProfileCard(ctk.CTkFrame):
     def _on_enter(self, event):
         if not self.is_selected:
             self.configure(fg_color=self.theme["bg_hover"])
-        self.delete_btn.grid()
+        self.export_btn.pack(side="left", padx=(0, 2))
+        self.delete_btn.pack(side="left")
     
     def _on_leave(self, event):
         x, y = self.winfo_pointerxy()
@@ -344,7 +371,8 @@ class ProfileCard(ctk.CTkFrame):
         if not (widget_x <= x < widget_x + widget_w and widget_y <= y < widget_y + widget_h):
             if not self.is_selected:
                 self.configure(fg_color=self.theme["bg_card"])
-            self.delete_btn.grid_remove()
+            self.export_btn.pack_forget()
+            self.delete_btn.pack_forget()
     
     def _on_click(self, event):
         if self.on_select:
@@ -353,6 +381,10 @@ class ProfileCard(ctk.CTkFrame):
     def _on_delete_click(self):
         if self.on_delete:
             self.on_delete(self.profile.id)
+    
+    def _on_export_click(self):
+        if self.on_export:
+            self.on_export(self.profile.id)
     
     def set_selected(self, selected: bool):
         self.is_selected = selected
@@ -2044,6 +2076,963 @@ class ModsWindow(ctk.CTkToplevel):
         threading.Thread(target=install, daemon=True).start()
 
 
+class ModBrowserWindow(ctk.CTkToplevel):
+    """Window for browsing and installing mods from CurseForge/Modrinth."""
+    
+    def __init__(
+        self,
+        parent,
+        config,
+        theme: dict,
+        minecraft_version: Optional[str] = None,
+        loader: Optional[str] = None,
+        mods_dir: Optional[Path] = None,
+        profile_manager: Optional[ProfileManager] = None,
+        profile_id: Optional[str] = None
+    ):
+        super().__init__(parent)
+        
+        self.config = config
+        self.theme = theme
+        self.minecraft_version = minecraft_version
+        self.loader = loader
+        self.mods_dir = mods_dir or Path.home() / ".minecraft" / "mods"
+        self.profile_manager = profile_manager
+        self.profile_id = profile_id
+        
+        # Initialize mod source manager
+        api_key = config.get("curseforge_api_key", "")
+        self.mod_source = ModSourceManager(api_key if api_key else None)
+        
+        self.current_mods: List[ModInfo] = []
+        self.is_searching = False
+        self.is_installing = False
+        
+        self.title(t("browse_mods"))
+        self.geometry("900x700")
+        self.minsize(700, 500)
+        self.configure(fg_color=theme["bg_primary"])
+        
+        self.transient(parent)
+        
+        self._create_widgets()
+        self.after(10, self._grab_focus)
+    
+    def _grab_focus(self):
+        try:
+            self.grab_set()
+            self.focus_force()
+        except:
+            pass
+    
+    def _create_widgets(self):
+        # Title
+        title_frame = ctk.CTkFrame(self, fg_color="transparent")
+        title_frame.pack(fill="x", padx=20, pady=(20, 10))
+        
+        ctk.CTkLabel(
+            title_frame,
+            text=f"🔍 {t('browse_mods')}",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(side="left")
+        
+        # Info about selected profile
+        if self.minecraft_version:
+            info_text = f"MC {self.minecraft_version}"
+            if self.loader:
+                info_text += f" • {self.loader.capitalize()}"
+            ctk.CTkLabel(
+                title_frame,
+                text=info_text,
+                font=ctk.CTkFont(size=12),
+                text_color=self.theme["text_muted"]
+            ).pack(side="right")
+        
+        # Search frame
+        search_frame = ctk.CTkFrame(self, fg_color=self.theme["bg_secondary"], corner_radius=10)
+        search_frame.pack(fill="x", padx=20, pady=10)
+        
+        # Search input
+        self.search_entry = ctk.CTkEntry(
+            search_frame,
+            placeholder_text=t("search_placeholder"),
+            height=45,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["bg_primary"],
+            border_color=self.theme["border"],
+            text_color=self.theme["text_primary"]
+        )
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=10, pady=10)
+        self.search_entry.bind("<Return>", lambda e: self._search())
+        
+        # Source filter
+        self.source_var = ctk.StringVar(value="all")
+        self.source_menu = ctk.CTkOptionMenu(
+            search_frame,
+            variable=self.source_var,
+            values=["all", "modrinth", "curseforge"],
+            height=45,
+            width=130,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_primary"],
+            button_color=self.theme["accent"],
+            button_hover_color=self.theme["accent_hover"],
+            dropdown_fg_color=self.theme["bg_secondary"],
+            text_color=self.theme["text_primary"]
+        )
+        self.source_menu.pack(side="left", padx=(0, 10), pady=10)
+        
+        # Search button
+        self.search_btn = ctk.CTkButton(
+            search_frame,
+            text=f"🔍 {t('search_mods')}",
+            height=45,
+            width=120,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["accent"],
+            hover_color=self.theme["accent_hover"],
+            command=self._search
+        )
+        self.search_btn.pack(side="right", padx=10, pady=10)
+        
+        # Status label
+        self.status_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_muted"]
+        )
+        self.status_label.pack(fill="x", padx=20)
+        
+        # Results frame with scroll
+        self.results_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            corner_radius=0
+        )
+        self.results_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        # Bind mouse wheel
+        self._bind_mousewheel(self.results_frame)
+    
+    def _bind_mousewheel(self, widget):
+        """Bind mouse wheel scrolling."""
+        def on_mousewheel(event):
+            widget._parent_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        def on_mousewheel_linux(event):
+            if event.num == 4:
+                widget._parent_canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                widget._parent_canvas.yview_scroll(1, "units")
+        
+        widget.bind("<MouseWheel>", on_mousewheel)
+        widget.bind("<Button-4>", on_mousewheel_linux)
+        widget.bind("<Button-5>", on_mousewheel_linux)
+        
+        for child in widget.winfo_children():
+            child.bind("<MouseWheel>", on_mousewheel)
+            child.bind("<Button-4>", on_mousewheel_linux)
+            child.bind("<Button-5>", on_mousewheel_linux)
+    
+    def _search(self):
+        """Search for mods."""
+        query = self.search_entry.get().strip()
+        if not query or self.is_searching:
+            return
+        
+        self.is_searching = True
+        self.search_btn.configure(state="disabled", text="⏳...")
+        self.status_label.configure(text=f"{t('loading')}...")
+        
+        # Clear previous results
+        for widget in self.results_frame.winfo_children():
+            widget.destroy()
+        
+        source = self.source_var.get()
+        
+        def search():
+            try:
+                mods = self.mod_source.search_mods(
+                    query,
+                    minecraft_version=self.minecraft_version,
+                    loader=self.loader,
+                    source=source,
+                    limit=30
+                )
+                self.current_mods = mods
+                self.after(0, lambda: self._display_results(mods))
+            except Exception as e:
+                logger.error(f"Search error: {e}")
+                self.after(0, lambda: self.status_label.configure(
+                    text=f"{t('error')}: {e}",
+                    text_color=self.theme["error"]
+                ))
+            finally:
+                self.is_searching = False
+                self.after(0, lambda: self.search_btn.configure(
+                    state="normal", text=f"🔍 {t('search_mods')}"
+                ))
+        
+        import threading
+        threading.Thread(target=search, daemon=True).start()
+    
+    def _display_results(self, mods: List[ModInfo]):
+        """Display search results."""
+        if not mods:
+            self.status_label.configure(
+                text=f"{t('no_mods_found')}. {t('try_different_search')}",
+                text_color=self.theme["text_muted"]
+            )
+            return
+        
+        self.status_label.configure(
+            text=f"{t('found_versions', count=len(mods))}",
+            text_color=self.theme["success"]
+        )
+        
+        for mod in mods:
+            self._create_mod_card(mod)
+        
+        self._bind_mousewheel(self.results_frame)
+    
+    def _create_mod_card(self, mod: ModInfo):
+        """Create a card for a mod."""
+        card = ctk.CTkFrame(
+            self.results_frame,
+            fg_color=self.theme["bg_secondary"],
+            corner_radius=10
+        )
+        card.pack(fill="x", pady=5)
+        
+        # Content frame
+        content = ctk.CTkFrame(card, fg_color="transparent")
+        content.pack(fill="x", padx=15, pady=12)
+        content.grid_columnconfigure(1, weight=1)
+        
+        # Icon - start with placeholder, load actual asynchronously
+        source_icon = "🟢" if mod.source == "modrinth" else "🟠"
+        icon_label = ctk.CTkLabel(
+            content,
+            text=source_icon,
+            font=ctk.CTkFont(size=24),
+            width=48,
+            height=48
+        )
+        icon_label.grid(row=0, column=0, rowspan=3, padx=(0, 10))
+        
+        # Load icon asynchronously
+        if mod.icon_url:
+            self._load_mod_icon(mod.icon_url, icon_label)
+        
+        # Mod name
+        name_label = ctk.CTkLabel(
+            content,
+            text=mod.name,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.theme["text_primary"],
+            anchor="w"
+        )
+        name_label.grid(row=0, column=1, sticky="w")
+        
+        # Info line: author, downloads, source
+        info_text = f"{t('by_author')} {mod.author} • {mod.downloads_formatted} {t('downloads')} • {mod.source.capitalize()}"
+        info_label = ctk.CTkLabel(
+            content,
+            text=info_text,
+            font=ctk.CTkFont(size=11),
+            text_color=self.theme["text_muted"],
+            anchor="w"
+        )
+        info_label.grid(row=1, column=1, sticky="w")
+        
+        # Description (truncated)
+        desc = mod.description[:100] + "..." if len(mod.description) > 100 else mod.description
+        desc_label = ctk.CTkLabel(
+            content,
+            text=desc,
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_secondary"],
+            anchor="w",
+            wraplength=500
+        )
+        desc_label.grid(row=2, column=1, sticky="w", pady=(5, 0))
+        
+        # Install button
+        install_btn = ctk.CTkButton(
+            content,
+            text=t("install_mod"),
+            width=100,
+            height=35,
+            font=ctk.CTkFont(size=12),
+            fg_color=self.theme["accent"],
+            hover_color=self.theme["accent_hover"],
+            command=lambda m=mod: self._show_versions(m)
+        )
+        install_btn.grid(row=0, column=2, rowspan=3, padx=(10, 0))
+    
+    def _load_mod_icon(self, icon_url: str, label: ctk.CTkLabel):
+        """Load mod icon asynchronously."""
+        def load():
+            try:
+                response = requests.get(icon_url, timeout=10)
+                response.raise_for_status()
+                
+                img = Image.open(BytesIO(response.content))
+                img = img.resize((48, 48), Image.Resampling.LANCZOS)
+                ctk_image = ctk.CTkImage(light_image=img, dark_image=img, size=(48, 48))
+                
+                def update():
+                    try:
+                        label.configure(image=ctk_image, text="")
+                        label.image = ctk_image  # Keep reference
+                    except Exception:
+                        pass  # Widget may be destroyed
+                
+                self.after(0, update)
+            except Exception as e:
+                logger.debug(f"Failed to load mod icon: {e}")
+        
+        threading.Thread(target=load, daemon=True).start()
+    
+    def _show_versions(self, mod: ModInfo):
+        """Show version selection dialog."""
+        self.status_label.configure(text=f"{t('loading')}...")
+        
+        def load():
+            versions = self.mod_source.get_mod_versions(
+                mod.id,
+                mod.source,
+                minecraft_version=self.minecraft_version,
+                loader=self.loader
+            )
+            self.after(0, lambda: self._display_version_dialog(mod, versions))
+        
+        import threading
+        threading.Thread(target=load, daemon=True).start()
+    
+    def _display_version_dialog(self, mod: ModInfo, versions: List[ModVersion]):
+        """Display version selection dialog."""
+        if not versions:
+            self.status_label.configure(
+                text=f"{t('no_versions_available')}",
+                text_color=self.theme["warning"] if "warning" in self.theme else self.theme["text_muted"]
+            )
+            return
+        
+        self.status_label.configure(text="")
+        
+        # Create dialog
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"{t('select_mod_version')}: {mod.name}")
+        dialog.geometry("500x400")
+        dialog.configure(fg_color=self.theme["bg_primary"])
+        dialog.transient(self)
+        dialog.grab_set()
+        
+        # Title
+        ctk.CTkLabel(
+            dialog,
+            text=f"📦 {mod.name}",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(pady=(20, 10))
+        
+        # Versions list
+        versions_frame = ctk.CTkScrollableFrame(
+            dialog,
+            fg_color="transparent"
+        )
+        versions_frame.pack(fill="both", expand=True, padx=20, pady=10)
+        
+        for ver in versions[:20]:  # Limit to 20 versions
+            ver_frame = ctk.CTkFrame(
+                versions_frame,
+                fg_color=self.theme["bg_secondary"],
+                corner_radius=8
+            )
+            ver_frame.pack(fill="x", pady=3)
+            
+            ver_content = ctk.CTkFrame(ver_frame, fg_color="transparent")
+            ver_content.pack(fill="x", padx=10, pady=8)
+            ver_content.grid_columnconfigure(0, weight=1)
+            
+            # Version name
+            ctk.CTkLabel(
+                ver_content,
+                text=ver.name,
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.theme["text_primary"],
+                anchor="w"
+            ).grid(row=0, column=0, sticky="w")
+            
+            # MC versions
+            mc_vers = ", ".join(ver.minecraft_versions[:3])
+            if len(ver.minecraft_versions) > 3:
+                mc_vers += "..."
+            ctk.CTkLabel(
+                ver_content,
+                text=f"MC: {mc_vers}",
+                font=ctk.CTkFont(size=10),
+                text_color=self.theme["text_muted"],
+                anchor="w"
+            ).grid(row=1, column=0, sticky="w")
+            
+            # Install button
+            ctk.CTkButton(
+                ver_content,
+                text=t("install_mod"),
+                width=80,
+                height=30,
+                font=ctk.CTkFont(size=11),
+                fg_color=self.theme["accent"],
+                hover_color=self.theme["accent_hover"],
+                command=lambda v=ver, d=dialog: self._install_mod(v, d)
+            ).grid(row=0, column=1, rowspan=2, padx=(10, 0))
+        
+        # Cancel button
+        ctk.CTkButton(
+            dialog,
+            text=t("cancel"),
+            width=100,
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=dialog.destroy
+        ).pack(pady=15)
+    
+    def _install_mod(self, version: ModVersion, dialog):
+        """Install a mod version."""
+        dialog.destroy()
+        
+        self.is_installing = True
+        self.status_label.configure(
+            text=f"⏳ {t('installing_mod')} {version.name}...",
+            text_color=self.theme["accent"]
+        )
+        
+        def install():
+            try:
+                # Ensure mods directory exists
+                self.mods_dir.mkdir(parents=True, exist_ok=True)
+                
+                def progress_callback(downloaded, total):
+                    if total > 0:
+                        pct = int(downloaded / total * 100)
+                        self.after(0, lambda: self.status_label.configure(
+                            text=f"⏳ {t('installing_mod')} {version.name}... {pct}%"
+                        ))
+                
+                # Install with dependencies
+                installed = self.mod_source.install_mod_with_dependencies(
+                    version,
+                    self.mods_dir,
+                    self.minecraft_version or "",
+                    self.loader or "",
+                    callback=lambda name, d, t: progress_callback(d, t)
+                )
+                
+                if installed:
+                    files = ", ".join([p.name for p in installed])
+                    
+                    # Track installed mods in profile
+                    if self.profile_manager and self.profile_id:
+                        for file_path in installed:
+                            self.profile_manager.add_installed_mod(
+                                self.profile_id,
+                                filename=file_path.name,
+                                source=version.source,
+                                mod_id=version.mod_id,
+                                version_id=version.id,
+                                name=version.name
+                            )
+                    
+                    self.after(0, lambda: self.status_label.configure(
+                        text=f"✅ {t('mod_installed')}: {files}",
+                        text_color=self.theme["success"]
+                    ))
+                else:
+                    self.after(0, lambda: self.status_label.configure(
+                        text=f"❌ {t('error')}",
+                        text_color=self.theme["error"]
+                    ))
+                    
+            except Exception as e:
+                logger.error(f"Install error: {e}")
+                self.after(0, lambda: self.status_label.configure(
+                    text=f"❌ {t('error')}: {e}",
+                    text_color=self.theme["error"]
+                ))
+            finally:
+                self.is_installing = False
+        
+        import threading
+        threading.Thread(target=install, daemon=True).start()
+
+
+class ExportProfileWindow(ctk.CTkToplevel):
+    """Window for exporting profile as manifest code."""
+    
+    def __init__(self, parent, profile: Profile, profile_manager: ProfileManager, theme: dict):
+        super().__init__(parent)
+        
+        self.profile = profile
+        self.profile_manager = profile_manager
+        self.theme = theme
+        
+        self.title(t("export_title"))
+        self.geometry("500x450")
+        self.minsize(400, 350)
+        self.configure(fg_color=theme["bg_primary"])
+        
+        self.transient(parent)
+        
+        self._create_widgets()
+        self._generate_code()
+        
+        self.after(10, self._grab_focus)
+    
+    def _grab_focus(self):
+        try:
+            self.grab_set()
+            self.focus_force()
+        except:
+            pass
+    
+    def _create_widgets(self):
+        # Title
+        ctk.CTkLabel(
+            self,
+            text=f"📤 {t('export_profile')}: {self.profile.name}",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(pady=(20, 5))
+        
+        # Description
+        ctk.CTkLabel(
+            self,
+            text=t("export_desc"),
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_muted"]
+        ).pack(pady=(0, 15))
+        
+        # Profile info
+        info_frame = ctk.CTkFrame(self, fg_color=self.theme["bg_secondary"], corner_radius=8)
+        info_frame.pack(fill="x", padx=20, pady=(0, 15))
+        
+        info_text = f"🎮 {self.profile.name}\n"
+        info_text += f"📦 Minecraft {self.profile.minecraft_version}\n"
+        if self.profile.loader_type:
+            info_text += f"🔧 {self.profile.loader_type.capitalize()} {self.profile.loader_version or ''}\n"
+        info_text += f"📁 {t('mods')}: {len(self.profile.installed_mods)}"
+        
+        # Count shareable vs local
+        shareable = sum(1 for m in self.profile.installed_mods if m.get("source") in ("modrinth", "curseforge") and m.get("mod_id"))
+        local = len(self.profile.installed_mods) - shareable
+        
+        if local > 0:
+            info_text += f" ({shareable} 🌐, {local} 📂)"
+        
+        ctk.CTkLabel(
+            info_frame,
+            text=info_text,
+            font=ctk.CTkFont(size=13),
+            text_color=self.theme["text_primary"],
+            justify="left"
+        ).pack(padx=15, pady=12, anchor="w")
+        
+        # Code label
+        ctk.CTkLabel(
+            self,
+            text="Manifest-код:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(anchor="w", padx=20)
+        
+        # Code textbox
+        self.code_text = ctk.CTkTextbox(
+            self,
+            height=100,
+            font=ctk.CTkFont(size=11, family="monospace"),
+            fg_color=self.theme["bg_secondary"],
+            text_color=self.theme["text_primary"],
+            corner_radius=8,
+            wrap="char"
+        )
+        self.code_text.pack(fill="x", padx=20, pady=(5, 10))
+        
+        # Status/warning
+        self.status_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color=self.theme["text_muted"]
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        # Buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="📋 Копировать",
+            width=150,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["accent"],
+            hover_color=self.theme["accent_hover"],
+            command=self._copy_code
+        ).pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            btn_frame,
+            text=t("cancel"),
+            width=100,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self.destroy
+        ).pack(side="right")
+    
+    def _generate_code(self):
+        """Generate manifest code for the profile."""
+        code = self.profile_manager.generate_manifest_code(self.profile.id)
+        
+        if code:
+            self.code_text.insert("1.0", code)
+            
+            # Check for local mods
+            local_count = self.profile_manager.get_local_mods_count(self.profile.id)
+            if local_count > 0:
+                self.status_label.configure(
+                    text=f"⚠️ {local_count} локальных модов не включены в код",
+                    text_color=self.theme["warning"] if "warning" in self.theme else "#f59e0b"
+                )
+        else:
+            self.code_text.insert("1.0", "Ошибка генерации кода")
+            self.status_label.configure(
+                text="❌ Нет модов для экспорта",
+                text_color=self.theme["error"]
+            )
+    
+    def _copy_code(self):
+        """Copy code to clipboard."""
+        code = self.code_text.get("1.0", "end-1c")
+        self.clipboard_clear()
+        self.clipboard_append(code)
+        self.status_label.configure(
+            text="✅ Скопировано в буфер обмена!",
+            text_color=self.theme["success"]
+        )
+
+
+class ImportProfileWindow(ctk.CTkToplevel):
+    """Window for importing profile from manifest code."""
+    
+    def __init__(self, parent, profile_manager: ProfileManager, mod_source: ModSourceManager, theme: dict, on_import: Callable):
+        super().__init__(parent)
+        
+        self.profile_manager = profile_manager
+        self.mod_source = mod_source
+        self.theme = theme
+        self.on_import = on_import
+        self.parsed_manifest = None
+        self.is_importing = False
+        
+        self.title(t("import_title"))
+        self.geometry("550x550")
+        self.minsize(450, 450)
+        self.configure(fg_color=theme["bg_primary"])
+        
+        self.transient(parent)
+        
+        self._create_widgets()
+        
+        self.after(10, self._grab_focus)
+    
+    def _grab_focus(self):
+        try:
+            self.grab_set()
+            self.focus_force()
+        except:
+            pass
+    
+    def _create_widgets(self):
+        # Title
+        ctk.CTkLabel(
+            self,
+            text=f"📥 {t('import_profile')}",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(pady=(20, 5))
+        
+        # Description
+        ctk.CTkLabel(
+            self,
+            text=t("import_desc"),
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_muted"]
+        ).pack(pady=(0, 15))
+        
+        # Code input
+        ctk.CTkLabel(
+            self,
+            text="Вставьте Manifest-код:",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            text_color=self.theme["text_primary"]
+        ).pack(anchor="w", padx=20)
+        
+        self.code_text = ctk.CTkTextbox(
+            self,
+            height=80,
+            font=ctk.CTkFont(size=11, family="monospace"),
+            fg_color=self.theme["bg_secondary"],
+            text_color=self.theme["text_primary"],
+            corner_radius=8,
+            wrap="char"
+        )
+        self.code_text.pack(fill="x", padx=20, pady=(5, 10))
+        self.code_text.bind("<KeyRelease>", self._on_code_changed)
+        
+        # Parse button
+        ctk.CTkButton(
+            self,
+            text="🔍 Проверить код",
+            width=150,
+            height=35,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self._parse_code
+        ).pack(pady=(0, 15))
+        
+        # Preview frame
+        self.preview_frame = ctk.CTkFrame(self, fg_color=self.theme["bg_secondary"], corner_radius=8)
+        self.preview_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        
+        self.preview_label = ctk.CTkLabel(
+            self.preview_frame,
+            text="Вставьте код и нажмите 'Проверить'",
+            font=ctk.CTkFont(size=13),
+            text_color=self.theme["text_muted"]
+        )
+        self.preview_label.pack(expand=True)
+        
+        # Progress
+        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.progress_frame.pack(fill="x", padx=20, pady=(0, 5))
+        
+        self.progress_bar = ctk.CTkProgressBar(
+            self.progress_frame,
+            height=6,
+            fg_color=self.theme["bg_tertiary"],
+            progress_color=self.theme["accent"]
+        )
+        self.progress_bar.pack(fill="x")
+        self.progress_bar.set(0)
+        self.progress_frame.pack_forget()
+        
+        self.status_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=12),
+            text_color=self.theme["text_muted"]
+        )
+        self.status_label.pack(pady=(0, 10))
+        
+        # Buttons
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        self.import_btn = ctk.CTkButton(
+            btn_frame,
+            text=f"📥 {t('import_profile')}",
+            width=180,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["accent"],
+            hover_color=self.theme["accent_hover"],
+            command=self._do_import,
+            state="disabled"
+        )
+        self.import_btn.pack(side="left", padx=(0, 10))
+        
+        ctk.CTkButton(
+            btn_frame,
+            text=t("cancel"),
+            width=100,
+            height=40,
+            font=ctk.CTkFont(size=14),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self.destroy
+        ).pack(side="right")
+    
+    def _on_code_changed(self, event=None):
+        """Reset preview when code changes."""
+        self.parsed_manifest = None
+        self.import_btn.configure(state="disabled")
+    
+    def _parse_code(self):
+        """Parse the entered code and show preview."""
+        code = self.code_text.get("1.0", "end-1c").strip()
+        
+        if not code:
+            self.status_label.configure(
+                text="❌ Введите код",
+                text_color=self.theme["error"]
+            )
+            return
+        
+        manifest = ProfileManager.parse_manifest_code(code)
+        
+        if manifest:
+            self.parsed_manifest = manifest
+            
+            # Show preview
+            preview_text = f"🎮 {manifest['name']}\n"
+            preview_text += f"📦 Minecraft {manifest['minecraft_version']}\n"
+            if manifest.get('loader_type'):
+                preview_text += f"🔧 {manifest['loader_type'].capitalize()} {manifest.get('loader_version', '')}\n"
+            preview_text += f"\n📁 Модов: {len(manifest.get('mods', []))}\n"
+            
+            # List mods
+            for mod in manifest.get('mods', [])[:5]:
+                source_icon = "🟢" if mod['source'] == 'modrinth' else "🟠"
+                preview_text += f"  {source_icon} {mod.get('name') or mod['mod_id']}\n"
+            
+            if len(manifest.get('mods', [])) > 5:
+                preview_text += f"  ... и ещё {len(manifest['mods']) - 5}"
+            
+            self.preview_label.configure(
+                text=preview_text,
+                text_color=self.theme["text_primary"]
+            )
+            
+            self.import_btn.configure(state="normal")
+            self.status_label.configure(
+                text="✅ Код валидный!",
+                text_color=self.theme["success"]
+            )
+        else:
+            self.parsed_manifest = None
+            self.preview_label.configure(
+                text="❌ Неверный формат кода",
+                text_color=self.theme["error"]
+            )
+            self.import_btn.configure(state="disabled")
+            self.status_label.configure(
+                text="❌ Ошибка парсинга кода",
+                text_color=self.theme["error"]
+            )
+    
+    def _do_import(self):
+        """Import the profile and download mods."""
+        if not self.parsed_manifest or self.is_importing:
+            return
+        
+        self.is_importing = True
+        self.import_btn.configure(state="disabled")
+        self.progress_frame.pack(fill="x", padx=20, pady=(0, 5))
+        
+        manifest = self.parsed_manifest
+        
+        def do_import():
+            try:
+                # Create profile
+                self.after(0, lambda: self.status_label.configure(
+                    text="📝 Создание профиля...",
+                    text_color=self.theme["accent"]
+                ))
+                
+                profile = self.profile_manager.create_profile(
+                    name=manifest['name'],
+                    minecraft_version=manifest['minecraft_version'],
+                    loader_type=manifest.get('loader_type'),
+                    loader_version=manifest.get('loader_version')
+                )
+                
+                mods_dir = Path(profile.game_directory) / "mods"
+                mods_dir.mkdir(parents=True, exist_ok=True)
+                
+                mods = manifest.get('mods', [])
+                total = len(mods)
+                
+                for i, mod_info in enumerate(mods):
+                    mod_name = mod_info.get('name') or mod_info['mod_id']
+                    self.after(0, lambda n=mod_name, idx=i: (
+                        self.status_label.configure(text=f"⏳ Скачивание: {n}..."),
+                        self.progress_bar.set((idx + 1) / max(total, 1))
+                    ))
+                    
+                    # Get mod versions
+                    versions = self.mod_source.get_mod_versions(
+                        mod_info['mod_id'],
+                        mod_info['source'],
+                        manifest['minecraft_version'],
+                        manifest.get('loader_type')
+                    )
+                    
+                    if versions:
+                        # Try to find specific version or use latest
+                        target_version = None
+                        if mod_info.get('version_id'):
+                            for v in versions:
+                                if v.id == mod_info['version_id']:
+                                    target_version = v
+                                    break
+                        if not target_version:
+                            target_version = versions[0]  # Latest
+                        
+                        # Download
+                        result = self.mod_source.download_mod(
+                            target_version,
+                            mods_dir
+                        )
+                        
+                        if result:
+                            # Track in profile
+                            self.profile_manager.add_installed_mod(
+                                profile.id,
+                                filename=result.name,
+                                source=mod_info['source'],
+                                mod_id=mod_info['mod_id'],
+                                version_id=target_version.id,
+                                name=target_version.name
+                            )
+                
+                self.after(0, lambda: (
+                    self.status_label.configure(
+                        text=f"✅ {t('import_success')}",
+                        text_color=self.theme["success"]
+                    ),
+                    self.progress_bar.set(1)
+                ))
+                
+                # Callback
+                self.after(500, lambda: (
+                    self.on_import(),
+                    self.destroy()
+                ))
+                
+            except Exception as e:
+                logger.error(f"Import error: {e}")
+                self.after(0, lambda: self.status_label.configure(
+                    text=f"❌ {t('import_error')}: {e}",
+                    text_color=self.theme["error"]
+                ))
+            finally:
+                self.is_importing = False
+        
+        threading.Thread(target=do_import, daemon=True).start()
+
+
 class SettingsWindow(ctk.CTkToplevel):
     """Settings window."""
     
@@ -2457,7 +3446,7 @@ class MainWindow(ctk.CTk):
         set_language(self.config.get("language", "ru"))
         
         self.launcher = LauncherCore(self.config.get_minecraft_dir())
-        self.mod_manager = ModManager(self.config.get_minecraft_dir(), launcher_core=self.launcher)
+        # self.mod_manager = ModManager(self.config.get_minecraft_dir(), launcher_core=self.launcher)
         self.profile_manager = ProfileManager(self.config.config_dir, minecraft_dir=self.config.get_minecraft_dir())
         self.auth = AuthManager(self.config.config_dir)
         
@@ -2634,18 +3623,44 @@ class MainWindow(ctk.CTk):
         )
         create_btn.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         
-        # Mods button
-        mods_btn = ctk.CTkButton(
+        # Import profile button
+        import_btn = ctk.CTkButton(
             buttons_frame,
-            text=f"🧩 {t('mods')}",
+            text=f"📥 {t('import_profile')}",
             height=40,
             font=ctk.CTkFont(size=13),
             fg_color=self.theme["bg_tertiary"],
             hover_color=self.theme["bg_hover"],
             text_color=self.theme["text_primary"],
-            command=self._open_mods
+            command=self._import_profile
         )
-        mods_btn.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        import_btn.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        
+        # Mods button
+        # mods_btn = ctk.CTkButton(
+        #     buttons_frame,
+        #     text=f"🧩 {t('mods')}",
+        #     height=40,
+        #     font=ctk.CTkFont(size=13),
+        #     fg_color=self.theme["bg_tertiary"],
+        #     hover_color=self.theme["bg_hover"],
+        #     text_color=self.theme["text_primary"],
+        #     command=self._open_mods
+        # )
+        # mods_btn.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        
+        # Browse mods catalog button
+        browse_mods_btn = ctk.CTkButton(
+            buttons_frame,
+            text=f"🔍 {t('browse_mods')}",
+            height=40,
+            font=ctk.CTkFont(size=13),
+            fg_color=self.theme["bg_tertiary"],
+            hover_color=self.theme["bg_hover"],
+            text_color=self.theme["text_primary"],
+            command=self._open_mod_browser
+        )
+        browse_mods_btn.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         
         # Settings button
         settings_btn = ctk.CTkButton(
@@ -2658,7 +3673,7 @@ class MainWindow(ctk.CTk):
             text_color=self.theme["text_primary"],
             command=self._open_settings
         )
-        settings_btn.grid(row=2, column=0, sticky="ew")
+        settings_btn.grid(row=4, column=0, sticky="ew")
     
     def _create_main_content(self):
         main = ctk.CTkFrame(self, fg_color="transparent")
@@ -2952,7 +3967,8 @@ class MainWindow(ctk.CTk):
                     profile,
                     self.theme,
                     on_select=self._select_profile,
-                    on_delete=self._delete_profile
+                    on_delete=self._delete_profile,
+                    on_export=self._export_profile
                 )
                 card.grid(row=row, column=0, sticky="ew", pady=(0, 8))
                 self.version_cards[f"profile:{profile.id}"] = card
@@ -3087,6 +4103,28 @@ class MainWindow(ctk.CTk):
         # Save selection
         self.config["last_version"] = card_id
         self.config.save()
+    
+    def _export_profile(self, profile_id: str):
+        """Export a profile as manifest code."""
+        profile = self.profile_manager.get_profile(profile_id)
+        if not profile:
+            return
+        
+        ExportProfileWindow(self, profile, self.profile_manager, self.theme)
+    
+    def _import_profile(self):
+        """Import a profile from manifest code."""
+        # Get mod source manager
+        api_key = self.config.get("curseforge_api_key", "")
+        mod_source = ModSourceManager(api_key if api_key else None)
+        
+        ImportProfileWindow(
+            self,
+            self.profile_manager,
+            mod_source,
+            self.theme,
+            on_import=self._load_versions
+        )
     
     def _delete_profile(self, profile_id: str):
         """Delete a profile."""
@@ -3542,6 +4580,32 @@ class MainWindow(ctk.CTk):
             self.launcher,
             self.theme,
             self.selected_version or ""
+        )
+    
+    def _open_mod_browser(self):
+        """Open mod browser window."""
+        # Get selected profile's info if available
+        mc_version = None
+        loader = None
+        mods_dir = None
+        profile_id = None
+        
+        if self.selected_profile:
+            mc_version = self.selected_profile.minecraft_version
+            loader = self.selected_profile.loader_type
+            profile_id = self.selected_profile.id
+            if self.selected_profile.game_directory:
+                mods_dir = Path(self.selected_profile.game_directory) / "mods"
+        
+        ModBrowserWindow(
+            self,
+            self.config,
+            self.theme,
+            mc_version,
+            loader,
+            mods_dir,
+            profile_manager=self.profile_manager,
+            profile_id=profile_id
         )
     
     def _open_settings(self):
