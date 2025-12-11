@@ -1,0 +1,18 @@
+# Minecraft Launcher Dependencies
+# ================================
+
+# Minecraft launcher library - handles downloading and launching
+minecraft-launcher-lib>=6.4
+
+# Modern GUI framework
+customtkinter>=5.2.0
+
+# Image support for GUI
+Pillow>=10.0.0
+
+# HTTP requests
+requests>=2.31.0
+
+# For building standalone executables
+pyinstaller>=6.0.0
+
