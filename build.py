@@ -59,6 +59,9 @@ def build_executable():
     print(f"Building CraftLauncher for {platform_name}")
     print(f"{'='*50}\n")
     
+    # Determine path separator for --add-data
+    sep = ";" if system == "Windows" else ":"
+    
     # PyInstaller command
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -70,11 +73,23 @@ def build_executable():
         "--hidden-import=PIL",
         "--hidden-import=PIL._tkinter_finder",
         "--hidden-import=customtkinter",
+        "--hidden-import=tkinter",
+        "--hidden-import=tkinter.ttk",
         # Collect all customtkinter data
         "--collect-all=customtkinter",
+        # Collect tkinter data (fixes Tcl/Tk issues on Windows)
+        "--collect-all=tkinter",
         # Add data files
-        "--add-data", f"src{':' if system != 'Windows' else ';'}src",
+        "--add-data", f"src{sep}src",
     ]
+    
+    # Windows-specific: collect Tcl/Tk data
+    if system == "Windows":
+        import tkinter
+        tk_root = Path(tkinter.__file__).parent
+        tcl_path = tk_root.parent / "tcl"
+        if tcl_path.exists():
+            cmd.extend(["--add-data", f"{tcl_path}{sep}tcl"])
     
     # Add icon if exists
     icon_path = Path("assets/icon.ico" if system == "Windows" else "assets/icon.png")

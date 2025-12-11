@@ -3409,6 +3409,7 @@ class SettingsWindow(ctk.CTkToplevel):
     def __init__(self, parent, config: Config, theme: dict, on_save: Callable):
         super().__init__(parent)
         
+        self.parent_window = parent
         self.config = config
         self.theme = theme
         self.on_save = on_save
@@ -3792,14 +3793,37 @@ class SettingsWindow(ctk.CTkToplevel):
         self.config["language"] = lang_code
         
         self.on_save()
-        self.destroy()
         
         # If language changed, restart the launcher automatically
         if lang_code != old_lang:
             import sys
-            import os
-            python = sys.executable
-            os.execl(python, python, *sys.argv)
+            import subprocess
+            
+            # Close windows
+            self.destroy()
+            self.parent_window.destroy()
+            
+            # Get the correct executable path and start new instance
+            if getattr(sys, 'frozen', False):
+                # Running as PyInstaller bundle
+                executable = sys.executable
+                if sys.platform == 'win32':
+                    # On Windows, use DETACHED_PROCESS to fully detach
+                    subprocess.Popen(
+                        [executable],
+                        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                        close_fds=True
+                    )
+                else:
+                    subprocess.Popen([executable], start_new_session=True)
+            else:
+                # Running as script
+                subprocess.Popen([sys.executable, sys.argv[0]], start_new_session=True)
+            
+            # Exit - sys.exit allows cleanup
+            sys.exit(0)
+        else:
+            self.destroy()
 
 
 class MainWindow(ctk.CTk):
@@ -3829,7 +3853,7 @@ class MainWindow(ctk.CTk):
         
         # Window setup
         self.title(f"CraftLauncher")
-        self.geometry("1000x700")
+        self.geometry("1024x768")
         self.minsize(800, 600)
         self.configure(fg_color=self.theme["bg_primary"])
         

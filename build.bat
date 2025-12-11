@@ -26,12 +26,33 @@ echo Installing dependencies...
 pip install --upgrade pip
 pip install -r requirements.txt
 
+REM Clean previous builds
+if exist "build" rmdir /s /q build
+if exist "dist" rmdir /s /q dist
+
 REM Run build
 echo Building executable...
-python build.py
+python -m PyInstaller ^
+    --name=CraftLauncher ^
+    --onefile ^
+    --windowed ^
+    --clean ^
+    --hidden-import=PIL ^
+    --hidden-import=PIL._tkinter_finder ^
+    --hidden-import=customtkinter ^
+    --hidden-import=tkinter ^
+    --hidden-import=tkinter.ttk ^
+    --collect-all=customtkinter ^
+    --add-data "src;src" ^
+    run.py
 
 echo.
-echo Build complete!
-echo Executable is in: dist\
+if exist "dist\CraftLauncher.exe" (
+    echo ✅ Build successful!
+    echo Executable: dist\CraftLauncher.exe
+    for %%I in (dist\CraftLauncher.exe) do echo Size: %%~zI bytes
+) else (
+    echo ❌ Build failed!
+)
+echo.
 pause
-
